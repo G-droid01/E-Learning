@@ -1,20 +1,42 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { db } from "../firebase/firebase";
-import { collection, getDocs, addDoc } from "firebase/firestore";
-
-const userRole = "admin"; // change to "user" to test visibility
+import { db, auth } from "../firebase/firebase";
+import { collection, getDocs, addDoc, deleteDoc, doc, updateDoc, getDoc } from "firebase/firestore";
+import { useAuthState } from "react-firebase-hooks/auth";
+import { FiEdit2, FiTrash2 } from "react-icons/fi";
 
 const Tabs = () => {
   const [tabData, setTabData] = useState([]);
   const [showModal, setShowModal] = useState(false);
+  const [editingTab, setEditingTab] = useState(null);
   const [newTab, setNewTab] = useState({
     title: "",
     color: "bg-blue-500",
-    link: "",
-    role: "all",
+    role: "all"
   });
+  const [user] = useAuthState(auth);
+  const [userRole, setUserRole] = useState("student");
 
+  // Fetch user role from users collection
+  useEffect(() => {
+    const fetchUserRole = async () => {
+      if (user) {
+        try {
+          const userDoc = await getDoc(doc(db, "users", user.uid));
+          if (userDoc.exists()) {
+            const userData = userDoc.data();
+            setUserRole(userData.role || "student");
+          }
+        } catch (err) {
+          console.error("Failed to fetch user role:", err);
+        }
+      }
+    };
+
+    fetchUserRole();
+  }, [user]);
+
+  // Fetch Tabs
   useEffect(() => {
     const fetchTabs = async () => {
       try {
@@ -32,59 +54,116 @@ const Tabs = () => {
       }
     };
 
-    fetchTabs();
-  }, [showModal]); // refresh list when modal closes after add
+    if (userRole) fetchTabs();
+  }, [showModal, userRole]);
 
-  const handleAddTab = async () => {
+  const handleAddOrUpdateTab = async () => {
     try {
-      await addDoc(collection(db, "study_materials"), newTab);
-      setShowModal(false);
-      setNewTab({ title: "", color: "bg-blue-500", link: "", role: "all" });
+      if (editingTab) {
+        const tabRef = doc(db, "study_materials", editingTab.id);
+        await updateDoc(tabRef, newTab);
+        setTabData((prev) =>
+          prev.map((t) => (t.id === editingTab.id ? { id: t.id, ...newTab } : t))
+        );
+      } else {
+        const docRef = await addDoc(collection(db, "study_materials"), newTab);
+        setTabData((prev) => [...prev, { id: docRef.id, ...newTab }]);
+      }
+      closeModal();
     } catch (err) {
-      console.error("Failed to add tab:", err);
+      console.error("Failed to add/update tab:", err);
     }
+  };
+
+  const handleDeleteTab = async (id, e) => {
+    e.stopPropagation();
+    if (window.confirm("Are you sure you want to delete this tab?")) {
+      try {
+        const tabRef = doc(db, "study_materials", id);
+        await deleteDoc(tabRef);
+        setTabData(tabData.filter((tab) => tab.id !== id));
+      } catch (err) {
+        console.error("Failed to delete tab:", err);
+      }
+    }
+  };
+
+  const handleEditModalOpen = (tab, e) => {
+    e.stopPropagation();
+    setEditingTab(tab);
+    setNewTab({
+      title: tab.title,
+      color: tab.color,
+      role: tab.role,
+    });
+    setShowModal(true);
+  };
+
+  const closeModal = () => {
+    setShowModal(false);
+    setNewTab({ title: "", color: "bg-blue-500", link: "", role: "all" });
+    setEditingTab(null);
   };
 
   return (
     <div className="p-4">
       {userRole === "admin" && (
-        <button
-          onClick={() => setShowModal(true)}
-          className="mb-4 px-4 py-2 bg-green-600 text-white rounded-lg shadow hover:bg-green-700"
-        >
-          + Add New Tab
-        </button>
+        <div className="text-end">
+          <button
+            onClick={() => setShowModal(true)}
+            className="mb-4 px-4 py-2 bg-green-600 text-white rounded-lg shadow hover:bg-green-700"
+          >
+            + Add
+          </button>
+        </div>
       )}
 
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
         {tabData.map((tab) => (
-          <Link
+          <div
             key={tab.id}
-            to={`/tab/${tab.id}`}
-            className={`text-white text-center rounded-xl p-6 shadow-lg hover:scale-105 transform transition duration-300 ${tab.color}`}
+            className={`relative rounded-xl shadow-lg hover:scale-105 transform transition duration-300 ${tab.color}`}
           >
-            {tab.title}
-          </Link>
+            {userRole === "admin" && (
+              <div className="absolute top-2 right-2 flex space-x-1 z-10">
+                <button
+                  onClick={(e) => handleEditModalOpen(tab, e)}
+                  className="p-0.5 text-gray-800 hover:text-white rounded"
+                  title="Edit"
+                >
+                  <FiEdit2 size={16} />
+                </button>
+                <button
+                  onClick={(e) => handleDeleteTab(tab.id, e)}
+                  className="p-0.5 text-gray-800 hover:text-white rounded"
+                  title="Delete"
+                >
+                  <FiTrash2 size={16} />
+                </button>
+              </div>
+            )}
+
+            <Link
+              to={`/tab/${tab.id}`}
+              className="block p-6 text-white text-center w-full h-full"
+            >
+              {tab.title}
+            </Link>
+          </div>
         ))}
       </div>
 
-      {/* MODAL */}
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-30">
           <div className="bg-white rounded-lg p-6 w-full max-w-md shadow-lg relative">
-            <h2 className="text-xl font-semibold mb-4">Add New Tab</h2>
+            <h2 className="text-xl font-semibold mb-4">
+              {editingTab ? "Edit Study Material" : "Add New Study Material"}
+            </h2>
             <input
               type="text"
               placeholder="Title"
               value={newTab.title}
               onChange={(e) => setNewTab({ ...newTab, title: e.target.value })}
-              className="w-full mb-2 px-3 py-2 border rounded"
-            />
-            <input
-              type="text"
-              placeholder="Link (e.g., tab/youtube)"
-              value={newTab.link}
-              onChange={(e) => setNewTab({ ...newTab, link: e.target.value })}
               className="w-full mb-2 px-3 py-2 border rounded"
             />
             <select
@@ -110,16 +189,16 @@ const Tabs = () => {
             </select>
             <div className="flex justify-end gap-2">
               <button
-                onClick={() => setShowModal(false)}
+                onClick={closeModal}
                 className="px-4 py-2 bg-gray-400 rounded hover:bg-gray-500 text-white"
               >
                 Cancel
               </button>
               <button
-                onClick={handleAddTab}
+                onClick={handleAddOrUpdateTab}
                 className="px-4 py-2 bg-blue-600 rounded hover:bg-blue-700 text-white"
               >
-                Save
+                {editingTab ? "Update" : "Save"}
               </button>
             </div>
           </div>

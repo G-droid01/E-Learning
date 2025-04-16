@@ -11,7 +11,7 @@ const Dashboard = () => {
           {/* Header */}
           <a href="skylearn/addnewstudent">
             <div className="bg-blue-500 text-white rounded-lg p-6 text-center">
-              <h1 className="text-3xl font-semibold">My Courses</h1>
+              <h1 className="text-3xl font-semibold">Study</h1>
             </div>
           </a>
           {/* Course Cards Grid */}
